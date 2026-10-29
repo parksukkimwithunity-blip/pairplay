@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Pairplay</title>
+<style>
+:root{--bg:#f6f5f2;--fg:#1d1d1d;--card:#fff;--line:#d9d6cf;--acc:#1d1d1d;--accfg:#fff;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#171717;--fg:#eee;--card:#222;--line:#3a3a3a;--acc:#eee;--accfg:#171717}}
+:root[data-theme="dark"]{--bg:#171717;--fg:#eee;--card:#222;--line:#3a3a3a;--acc:#eee;--accfg:#171717}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;display:flex;flex-direction:column;align-items:center;padding:16px}
+h1{font-size:18px;margin:4px 0 12px}
+.wrap{width:100%;max-width:420px}
+.stage{position:relative;width:100%;max-width:calc(68vh * 9 / 16);aspect-ratio:9/16;margin:0 auto;border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden}.stage canvas,.stage img{position:absolute}.stage canvas{left:0;top:0;width:100%;height:100%}#fr{position:absolute;left:16.3%;top:24.48%;width:67.41%;height:37.92%;overflow:hidden}.stage img{left:0;top:0;width:100%;height:100%;object-fit:cover;display:none}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px;margin-top:12px}
+label{display:block;font-size:13px;margin-bottom:10px}
+input[type=text],select{width:100%;margin-top:4px;padding:9px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--fg);font-size:15px}
+.row{display:flex;gap:8px}.row>label{flex:1}
+button{width:100%;padding:12px;border:0;border-radius:10px;background:var(--acc);color:var(--accfg);font-size:15px;font-weight:600}
+.tip{font-size:12px;opacity:.7;line-height:1.5;margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>Pairplay</h1>
+<div class="stage"><div id="fr"><img id="pic" alt=""></div><canvas id="c" width="1080" height="1920"></canvas></div>
+
+<div class="card">
+<button id="pick" type="button">그림 고르기 (PNG/JPG/GIF)</button><input type="file" id="file" accept="image/*" style="display:none"><div id="paste" contenteditable="true" style="margin:8px 0 12px;padding:10px;border:1px dashed var(--line);border-radius:8px;font-size:12px;opacity:.8;min-height:40px">고르기가 안 되면 이 칸을 길게 눌러 붙여넣기 하거나, 사진을 끌어다 놓아요</div>
+<div class="row">
+<label>시작 시간<input type="text" id="start" value="0:39"></label>
+<label>전체 길이<input type="text" id="total" value="1:39"></label>
+</div>
+<label>재생 속도
+<select id="speed"><option value="1">1배 (실제 시간)</option><option value="2">2배</option><option value="5" selected>5배</option><option value="10">10배</option></select></label>
+<div id="lay"></div><label>그림 칸 배경색<input type="color" id="bgc" value="#ffffff" style="width:100%;height:40px"></label><label>기본 그림 움직임<select id="mot"><option value="none">없음</option><option value="nod" selected>까딱 (위아래)</option><option value="tilt">기울기 (좌우)</option><option value="float">둥실</option></select></label><label>기본 그림 세기<select id="mstr"><option value="0.6">약하게</option><option value="1" selected>보통</option><option value="1.6">세게</option></select></label><label>위쪽 자르기<input type="range" id="cropT" min="0" max="900" value="365" style="width:100%"></label><label>아래쪽 자르기<input type="range" id="cropB" min="0" max="900" value="400" style="width:100%"></label><label>왼쪽 자르기<input type="range" id="cropL" min="0" max="500" value="146" style="width:100%"></label><label>오른쪽 자르기<input type="range" id="cropR" min="0" max="500" value="146" style="width:100%"></label><label>부드러움 (프레임)<select id="fps"><option value="10">10 (가벼움)</option><option value="15">15</option><option value="20" selected>20 (부드러움)</option><option value="30">30 (아주 부드러움, 무거움)</option></select></label><label>GIF 길이 (초)<input type="text" id="len" value="8" inputmode="numeric"></label>
+<button id="pp">일시정지</button>
+<button id="mk" style="margin-top:8px">GIF로 저장</button>
+<div id="msg" class="tip"></div>
+<div class="tip">그림 칸에는 움직이는 GIF도 넣을 수 있어요. 저장되는 GIF는 너비 540px, 움직임이 끊겨 보이면 프레임을 높여봐요. 어둡게 보이는 부분은 저장할 때 잘려요. 재생바가 끝에 닿으면 처음으로 돌아가요.</div>
+</div>
+</div>
+
+<script>
+var cv=document.getElementById("c"),g=cv.getContext("2d"),pic=document.getElementById("pic");
+var $=function(i){return document.getElementById(i)};
+var img=null,frames=[],totalMs=0,playing=true,elapsed=0,last=null,hasPic=false;
+function parse(s){var p=String(s).split(":");var m=parseInt(p[0],10)||0,sec=p.length>1?parseInt(p[1],10)||0:0;return m*60+sec}
+function fmt(t){t=Math.floor(t);var m=Math.floor(t/60),s=t%60;return m+":"+(s<10?"0":"")+s}
+$("file").addEventListener("change",async function(e){
+  var f=e.target.files[0];if(!f)return;
+  frames=[];totalMs=0;
+  var url=URL.createObjectURL(f);pic.src=url;pic.style.display="block";hasPic=true;
+  var im=new Image();im.onload=function(){img=im;draw()};im.src=url;
+  $("msg").textContent="";
+  if(f.type==="image/gif"&&"ImageDecoder" in window){
+    try{
+      var dec=new ImageDecoder({data:await f.arrayBuffer(),type:"image/gif"});
+      await dec.tracks.ready;var n=Math.min(dec.tracks.selectedTrack.frameCount,240);
+      for(var i=0;i<n;i++){var r=await dec.decode({frameIndex:i});var d=(r.image.duration||100000)/1000;if(d<20)d=100;
+        frames.push({bmp:await createImageBitmap(r.image),dur:d});totalMs+=d;r.image.close()}
+    }catch(err){frames=[];totalMs=0;$("msg").textContent="이 기기에서는 GIF 움직임을 저장에 못 쓰고 첫 장면만 들어가요."}
+  }else if(f.type==="image/gif"){$("msg").textContent="이 기기에서는 GIF 움직임을 저장에 못 쓰고 첫 장면만 들어가요."}
+});
+$("pp").addEventListener("click",function(){playing=!playing;this.textContent=playing?"일시정지":"재생";last=null});
+["start","total","speed"].forEach(function(i){$(i).addEventListener("input",function(){elapsed=0;draw()})});
+
+function ui(g,cur,st,tot){
+  var span=tot-st;
+  g.strokeStyle="#000";g.fillStyle="#000";g.lineCap="round";g.lineJoin="round";g.setLineDash([]);
+  g.lineWidth=5;g.beginPath();g.moveTo(174,391);g.lineTo(198,413);g.lineTo(222,391);g.stroke();
+  [-16,0,16].forEach(function(d){g.beginPath();g.arc(899,404+d,4.5,0,7);g.fill()});
+  g.lineWidth=4;
+  [[1243,226],[1258,226],[1273,204]].forEach(function(l){g.beginPath();g.moveTo(176,l[0]);g.lineTo(l[1],l[0]);g.stroke()});
+  g.beginPath();g.moveTo(226,1262);g.lineTo(226,1292);g.stroke();
+  g.beginPath();g.ellipse(218,1291,10,8,0,0,7);g.fill();
+  g.beginPath();
+  for(var t=0;t<=360;t+=3){var a=t*Math.PI/180,x=16*Math.pow(Math.sin(a),3),y=13*Math.cos(a)-5*Math.cos(2*a)-2*Math.cos(3*a)-Math.cos(4*a);
+    var px=538+x*1.9,py=1258-y*1.9-4;if(t===0)g.moveTo(px,py);else g.lineTo(px,py)}
+  g.closePath();g.stroke();
+  g.beginPath();g.moveTo(856,1258);g.lineTo(908,1258);g.moveTo(882,1232);g.lineTo(882,1284);g.stroke();
+  var kx=176+728*((cur-st)/span);
+  g.lineWidth=5;g.strokeStyle="#b4b4b4";g.beginPath();g.moveTo(176,1371);g.lineTo(904,1371);g.stroke();
+  g.strokeStyle="#000";g.lineWidth=6;g.beginPath();g.moveTo(176,1371);g.lineTo(kx,1371);g.stroke();
+  g.beginPath();g.arc(kx,1371,17,0,7);g.fill();
+  g.font="26px -apple-system,'Apple SD Gothic Neo',sans-serif";g.textBaseline="middle";
+  g.textAlign="left";g.fillText(fmt(cur),176,1408);
+  g.textAlign="right";g.fillText(fmt(tot),904,1408);
+  var y=1467;
+  g.beginPath();g.moveTo(520,y-30);g.lineTo(520,y+30);g.lineTo(566,y);g.closePath();g.fill();
+  [[375,-1],[705,1]].forEach(function(b){
+    for(var o=0;o<=20;o+=20){g.beginPath();
+      if(b[1]<0){g.moveTo(b[0]-o-6,y);g.lineTo(b[0]-o+14,y-15);g.lineTo(b[0]-o+14,y+15)}
+      else{g.moveTo(b[0]+o+6,y);g.lineTo(b[0]+o-14,y-15);g.lineTo(b[0]+o-14,y+15)}
+      g.closePath();g.fill()}
+    if(b[1]<0)g.fillRect(b[0]-40,y-16,8,32);else g.fillRect(b[0]+36,y-16,8,32);
+  });
+}
+function params(el){
+  var st=parse($("start").value),tot=Math.max(parse($("total").value),1),sp=parseFloat($("speed").value);
+  if(st>=tot)st=0;return{st:st,tot:tot,cur:st+(el*sp)%(tot-st)};
+}
+var slots=[{img:null},{img:null}],MOTS=["nod","float","tilt"],DX=[-170,170,0];
+slots.forEach(function(L,i){
+  var d=document.createElement("div");d.className="card";
+  var opts=function(sel){return [["none","없음"],["nod","까딱 (위아래)"],["tilt","기울기 (좌우)"],["float","둥실"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===sel?" selected":"")+'>'+o[1]+'</option>'}).join("")};
+  d.innerHTML='<b style="font-size:13px">캐릭터 '+(i+1)+' (투명 배경 PNG)</b><input type="file" id="lf'+i+'" accept="image/*" style="margin:6px 0 10px;width:100%">'
+   +'<label>움직임<select id="lm'+i+'">'+opts(MOTS[i])+'</select></label>'
+   +'<label>세기<select id="lk'+i+'"><option value="0.6">약하게</option><option value="1" selected>보통</option><option value="1.6">세게</option></select></label>'
+   +'<label>크기<input type="range" id="lh'+i+'" min="200" max="1000" value="640" style="width:100%"></label>'
+   +'<label>좌우<input type="range" id="lx'+i+'" min="-400" max="400" value="'+DX[i]+'" style="width:100%"></label>'
+   +'<label>위아래<input type="range" id="ly'+i+'" min="-300" max="300" value="30" style="width:100%"></label>';
+  $("lay").appendChild(d);
+  $("lf"+i).addEventListener("change",function(e){var f=e.target.files[0];if(!f)return;var im=new Image();im.onload=function(){L.img=im;draw()};im.src=URL.createObjectURL(f)});
+  ["lm","lk","lh","lx","ly"].forEach(function(p){$(p+i).addEventListener("input",draw)});
+});
+$("bgc").addEventListener("input",function(){$("fr").style.backgroundColor=this.value;draw()});
+function drawLayers(c,t){
+  slots.forEach(function(L,i){
+    if(!L.img)return;
+    var m=motionOf(t+i*0.45,$("lm"+i).value,+$("lk"+i).value),h=+$("lh"+i).value,w=L.img.width*h/L.img.height;
+    c.save();c.translate(540+(+$("lx"+i).value)+m.dx,1198+(+$("ly"+i).value)+m.dy);c.rotate(m.rot*Math.PI/180);c.drawImage(L.img,-w/2,-h,w,h);c.restore();
+  });
+}
+function crop(){var T=+$("cropT").value,B=+$("cropB").value,L=+$("cropL").value,R=+$("cropR").value;return{x:L,y:T,w:1080-L-R,h:1920-T-B}}
+function overlay(c){g.fillStyle="rgba(90,90,90,.35)";g.fillRect(0,0,1080,c.y);g.fillRect(0,c.y+c.h,1080,1920-c.y-c.h);g.fillRect(0,c.y,c.x,c.h);g.fillRect(c.x+c.w,c.y,1080-c.x-c.w,c.h);g.strokeStyle="#ff4d8d";g.lineWidth=4;g.setLineDash([16,10]);g.strokeRect(c.x,c.y,c.w,c.h);g.setLineDash([])}
+function motion(t){return motionOf(t,$("mot").value,+$("mstr").value)}
+function motionOf(t,m,k){if(m==="none")return{dx:0,dy:0,rot:0,sc:1};var dx=0,dy=0,rot=0,P=2*Math.PI*t;if(m==="nod")dy=Math.sin(P*1.5)*14*k;else if(m==="tilt")rot=Math.sin(P*0.8)*4*k;else{dy=Math.sin(P*0.5)*10*k;dx=Math.sin(P*0.25)*8*k}return{dx:dx,dy:dy,rot:rot,sc:1.12}}
+function draw(){
+  var p=params(elapsed);
+  g.fillStyle="#fff";g.fillRect(0,0,1080,1920);
+  g.clearRect(176,470,728,728);
+  if(!hasPic&&!slots.some(function(L){return L.img})){g.strokeStyle="#bbb";g.lineWidth=2;g.setLineDash([12,10]);g.strokeRect(176,470,728,728);
+    g.fillStyle="#999";g.font="32px sans-serif";g.textAlign="center";g.fillText("여기에 그림이 들어가요",540,840)}
+  g.save();g.beginPath();g.rect(176,470,728,728);g.clip();drawLayers(g,elapsed);g.restore();
+  ui(g,p.cur,p.st,p.tot);overlay(crop());var mm=motion(elapsed);pic.style.transform="translate("+mm.dx/7.28+"%,"+mm.dy/7.28+"%) rotate("+mm.rot+"deg) scale("+mm.sc+")";
+}
+function loop(ts){
+  if(playing){if(last!==null)elapsed+=(ts-last)/1000;last=ts;draw()}
+  requestAnimationFrame(loop);
+}
+draw();requestAnimationFrame(loop);
+
+$("pick").addEventListener("click",function(){$("file").click()});
+function give(files){if(!files||!files.length)return;try{var dt=new DataTransfer();dt.items.add(files[0]);$("file").files=dt.files;$("file").dispatchEvent(new Event("change"))}catch(x){$("msg").textContent="이 기기에서는 이 방법이 안 돼요."}}
+document.addEventListener("paste",function(e){var f=e.clipboardData&&e.clipboardData.files;if(f&&f.length){e.preventDefault();give(f)}});
+document.addEventListener("dragover",function(e){e.preventDefault()});
+document.addEventListener("drop",function(e){e.preventDefault();give(e.dataTransfer.files)});
+["mot","mstr","cropT","cropB","cropL","cropR"].forEach(function(i){$(i).addEventListener("input",draw)});
+/* GIF 인코더 (252색 고정 팔레트) */
+function lzw(ix){
+  var out=[],bits=0,nb=0,cs=9,next=258,dict=new Map();
+  function emit(c){bits|=c<<nb;nb+=cs;while(nb>=8){out.push(bits&255);bits>>>=8;nb-=8}}
+  emit(256);var pre=ix[0];
+  for(var i=1;i<ix.length;i++){
+    var k=ix[i],key=(pre<<8)|k,v=dict.get(key);
+    if(v!==undefined){pre=v}
+    else{emit(pre);
+      if(next<4096){dict.set(key,next);if(next===(1<<cs))cs++;next++}
+      else{emit(256);dict.clear();cs=9;next=258}
+      pre=k}
+  }
+  emit(pre);emit(257);if(nb>0)out.push(bits&255);return out;
+}
+function medianCut(hist,N){
+  var cols=[];hist.forEach(function(c,k){cols.push({r:(k>>16)&255,g:(k>>8)&255,b:k&255,n:c})});
+  var boxes=[cols],CH=["r","g","b"];
+  while(boxes.length<N){
+    var bi=-1,bro=0,bch="r";
+    boxes.forEach(function(bx,i){if(bx.length<2)return;var mn={r:255,g:255,b:255},mx={r:0,g:0,b:0};
+      bx.forEach(function(c){CH.forEach(function(ch){if(c[ch]<mn[ch])mn[ch]=c[ch];if(c[ch]>mx[ch])mx[ch]=c[ch]})});
+      CH.forEach(function(ch){if(mx[ch]-mn[ch]>bro){bro=mx[ch]-mn[ch];bi=i;bch=ch}})});
+    if(bi<0)break;
+    var bx=boxes[bi].slice().sort(function(a,b){return a[bch]-b[bch]}),tot=0;bx.forEach(function(c){tot+=c.n});
+    var acc=0,cut=1;for(var q=0;q<bx.length-1;q++){acc+=bx[q].n;cut=q+1;if(acc>=tot/2)break}
+    boxes.splice(bi,1,bx.slice(0,cut),bx.slice(cut));
+  }
+  return boxes.map(function(bx){var r=0,g=0,b=0,t=0;bx.forEach(function(c){r+=c.r*c.n;g+=c.g*c.n;b+=c.b*c.n;t+=c.n});return[Math.round(r/t),Math.round(g/t),Math.round(b/t)]});
+}
+function gifBytes(w,h,list,delayCs,pal){
+  var o=[];function w16(v){o.push(v&255,(v>>8)&255)}
+  "GIF89a".split("").forEach(function(c){o.push(c.charCodeAt(0))});
+  w16(w);w16(h);o.push(0xF7,0,0);
+  for(var i=0;i<256;i++){var c=pal[i]||[0,0,0];o.push(c[0],c[1],c[2])}
+  o.push(0x21,0xFF,11);"NETSCAPE2.0".split("").forEach(function(c){o.push(c.charCodeAt(0))});o.push(3,1,0,0,0);
+  list.forEach(function(ix){
+    o.push(0x21,0xF9,4,0);w16(delayCs);o.push(0,0);
+    o.push(0x2C);w16(0);w16(0);w16(w);w16(h);o.push(0,8);
+    var d=lzw(ix);
+    for(var i=0;i<d.length;i+=255){var n=Math.min(255,d.length-i);o.push(n);for(var j=0;j<n;j++)o.push(d[i+j])}
+    o.push(0);
+  });
+  o.push(0x3B);return new Uint8Array(o);
+}
+$("mk").addEventListener("click",async function(){
+  var dl={save:async function(o){var b=new Blob([o.data],{type:"image/gif"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download=o.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(a.href)},4000)}};
+  if(!dl){$("msg").textContent="이 화면에서는 저장을 못 해요.";return}
+  var btn=this;btn.disabled=true;playing=false;
+  var cr=crop(),W=540,sc=W/cr.w,H=Math.round(cr.h*sc),len=Math.min(Math.max(parseFloat($("len").value)||8,1),30),FPS=+$("fps").value||20,n=Math.min(300,Math.round(len*FPS));
+  var oc=document.createElement("canvas");oc.width=W;oc.height=H;var og=oc.getContext("2d",{willReadFrequently:true});
+  function render(f){
+    var t=f/FPS,p=params(t);
+    og.setTransform(1,0,0,1,0,0);og.fillStyle="#fff";og.fillRect(0,0,W,H);
+    og.setTransform(sc,0,0,sc,-cr.x*sc,-cr.y*sc);og.fillStyle=$("bgc").value;og.fillRect(176,470,728,728);
+    var src=img;
+    if(frames.length){var ms=(t*1000)%totalMs,acc=0;for(var q=0;q<frames.length;q++){acc+=frames[q].dur;if(ms<acc){src=frames[q].bmp;break}}}
+    if(src){var iw=src.width,ih=src.height,r=Math.max(728/iw,728/ih),w=iw*r,h=ih*r;
+      og.save();og.beginPath();og.rect(176,470,728,728);og.clip();var mo=motion(t);og.translate(540+mo.dx,834+mo.dy);og.rotate(mo.rot*Math.PI/180);og.scale(mo.sc,mo.sc);og.drawImage(src,-w/2,-h/2,w,h);og.restore()}
+    og.save();og.beginPath();og.rect(176,470,728,728);og.clip();drawLayers(og,t);og.restore();
+    ui(og,p.cur,p.st,p.tot);
+    return og.getImageData(0,0,W,H).data;
+  }
+  $("msg").textContent="색을 고르는 중…";
+  await new Promise(function(r){setTimeout(r,0)});
+  var hist=new Map(),ks=Math.min(n,8);
+  for(var s0=0;s0<ks;s0++){var d0=render(Math.floor(s0*n/ks));
+    for(var i0=0;i0<d0.length;i0+=8){var k0=(d0[i0]<<16)|(d0[i0+1]<<8)|d0[i0+2];hist.set(k0,(hist.get(k0)||0)+1)}}
+  var ent=[];hist.forEach(function(c,k){ent.push([k,c])});ent.sort(function(a,b){return b[1]-a[1]});
+  var pal=[],rest=new Map();
+  ent.forEach(function(e,qi){if(qi<100)pal.push([(e[0]>>16)&255,(e[0]>>8)&255,e[0]&255]);else rest.set(e[0],e[1])});
+  if(rest.size)pal=pal.concat(medianCut(rest,256-pal.length-2));
+  pal.push([255,255,255],[0,0,0]);
+  var lut=new Map();
+  function nearest(r,g,b){var best=0,bd=1e9;for(var c=0;c<pal.length;c++){var dr=pal[c][0]-r,dg=pal[c][1]-g,db=pal[c][2]-b,d=dr*dr+dg*dg+db*db;if(d<bd){bd=d;best=c}}return best}
+  var list=[];
+  for(var f=0;f<n;f++){
+    var px=render(f),ix=new Uint8Array(W*H);
+    for(var i=0,j=0;i<px.length;i+=4,j++){
+      var key=(px[i]<<16)|(px[i+1]<<8)|px[i+2],v=lut.get(key);
+      if(v===undefined){v=nearest(px[i],px[i+1],px[i+2]);lut.set(key,v)}
+      ix[j]=v}
+    list.push(ix);
+    $("msg").textContent="만드는 중… "+Math.round((f+1)/n*100)+"%";
+    await new Promise(function(r){setTimeout(r,0)});
+  }
+  try{
+    await dl.save({filename:"player.gif",data:gifBytes(W,H,list,Math.round(100/FPS),pal)});
+    $("msg").textContent="저장 완료!";
+  }catch(err){$("msg").textContent=(err&&err.code==="declined")?"저장을 취소했어요.":"저장에 실패했어요."}
+  btn.disabled=false;playing=true;last=null;
+});
+</script>
+</body>
+</html>
