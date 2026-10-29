@@ -101,7 +101,7 @@ function params(el){
   var st=parse($("start").value),tot=Math.max(parse($("total").value),1),sp=parseFloat($("speed").value);
   if(st>=tot)st=0;return{st:st,tot:tot,cur:st+(el*sp)%(tot-st)};
 }
-var slots=[{img:null},{img:null}],MOTS=["nod","float","tilt"],DX=[-170,170,0];
+var slots=[{img:null},{img:null},{img:null}],MOTS=["nod","float","tilt"],DX=[-170,170,0];
 slots.forEach(function(L,i){
   var d=document.createElement("div");d.className="card";
   var opts=function(sel){return [["none","없음"],["nod","까딱 (위아래)"],["tilt","기울기 (좌우)"],["float","둥실"]].map(function(o){return '<option value="'+o[0]+'"'+(o[0]===sel?" selected":"")+'>'+o[1]+'</option>'}).join("")};
